@@ -1,0 +1,214 @@
+---
+title: "CYO - Orthopedic BioMechanical features"
+author: "Aravind Sankar"
+date: "11/7/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Table Of Contents:
+A) Introduction/Overview
+B) Executive Summary
+C) Methods/Analysis
+   1) Download & Understand the data
+   2) Exploratory Analysis 
+   3) Model 1 - Multinominal Logistic Regression
+   4) Model 2 - Random Forest
+   5) Train/tune Model 2 (Random Forest)
+D) Results
+E) Conclusion
+
+### A) Introduction/Overview:
+This document provides a detailed narrative of the Machine Learning model built on 'Biomechanical features of orthopedic patients' data-set as part of CYO project requirements in 'Data-Science Professional Certificate' course program offered by edX- HarvardX.
+The data-set contains 6 biomechanical attributes (predictors) derived from the shape and orientaton of the pelvis and lumbar spine; which, classify patients as belonging to one of the three categories : Normal, Disk Hernia or Spondylolisthesis (dependent variable).
+The aim of this project is to machine-learn the data and fit a model that can predict the patient classification based on the attributes as accurately as possible.
+As part of the project requirements, atleast 2 different models would be experimented to offer a variety in model selection.
+
+<font size = 1.5>*Please Note :*</font>
+<font size = 1>The data-set has been downloaded to my local machine and the R code basically operates on this.
+For your reference, have attached the data-set (CSV file-name :  'column_3C_weka') to the GitHub repository link https://github.com/AravindAmazon/CYO---Orthopedic-BioMechanical-features </font>
+
+### B) Executive Summary:
+The following two models have been deployed for this data-set:
+
+|    a) Multinomial Logistic Regression
+|    b) Random Forest (with one level of iteration to keep the error estimate least)
+|    The accuracy levels and pros & cons of the individual models are detailed out in the sections below.
+<font size = 1.5>*Please Note :*</font>
+<font size = 1>The accuracy results are not documented in the 'Execute Summary' section because I observed that there is a fluctuation in accuracy at different instances of running the code. This is because the sample-size is very small (310 rows) and subsequently, the volume of the test set is as less as 62. So, a variation in the count of correct/incorrect predictions even by 1 or 2 causes a significant variation in overall model accuracy percentage. Also, there is fluctuation in the tuned version of Model 2 (Random Forest) increasing or decreasing the baseline accuracy due to the low sample size. Neverthless, when I ran the model on a set of dummy test data with a relatively bigger sample size, the fluctuation in accuracy was not seen which confirmed that the model logic was correct.
+
+### C) Methods/Analysis:
+|     **1) Download & Understand the data**
+
+```{r message=FALSE, warning=FALSE}
+#Download the required libraries
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(reshape2)) install.packages("reshape2", repos = "http://cran.us.r-project.org")
+library(tidyverse)
+library(caret)
+library(data.table)
+library(ggplot2)
+library(reshape2)
+
+#Open 'Biomechanical features of orthopedic patients' data-set from my local machine. 
+setwd("/Users/arsankar/Desktop/Knowledge/Data Science/Module 9 - Capstone/CYO")
+#Please note that I have already downloaded the data-set from Kaggle to my local directory.
+#Hence,the above line of code wouldnt work on another PC as this is specific to my local machine.
+#So, for you to be able to run my overall code, request you to download the data-set from
+#my GitHub Repository #https://github.com/AravindAmazon/CYO---Orthopedic-BioMechanical-features
+#and update your local machine directory path above.
+
+
+
+#Read CSV file and store in data-frame
+datasetnew <- read.csv("column_3C_weka.csv", sep = "|", header = TRUE)
+#Understand the data-set. Firstly, see a high-level view of all the fields
+glimpse(datasetnew)
+
+#Understand data-types and min-max values for each field
+summary(datasetnew)
+```
+<font size = 1.5>*Key Inferences:*</font> 
+
+
+|   <font size = 1>1) pelvic_tilt & degree_spondylolisthesis can have negative values</font> 
+
+|   <font size = 1>2) Spondylolisthesis (150) is more common than the other 2 classes.</font>
+```{r }
+#Count the number of empty cells in the data-set
+sum(!complete.cases(datasetnew))
+```
+
+<font size = 1.5>*Inference:*</font> 
+
+|    <font size = 1>The data-set is pretty clean already with no missing cells. There are 6 dbl variables (predictors) and 1 categorical variable (response variable). And, from the summary of these variables, it is seen that that there is no irrelevant/abnormal values in any of the variables.
+So, the data-set is ready for analysis.</font>
+
+|     **2) Exploratory Analysis**
+```{r }
+#See a boxplot view of class vs. each feature
+datasetnewbox<-melt(datasetnew, id.var="class")
+bp<-ggplot(data=datasetnewbox, aes(x=variable, y=value)) + geom_boxplot(aes(fill=class))
+bp+facet_wrap(~variable, scales = "free")
+```
+
+
+
+
+<font size = 1.5>*Key Inferences*</font> 
+
+|    <font size = 1> 1) Data-distributions for 3 features ('pelvic_incidence', 'lumbar_lordosis_angle' and 'degree_spondylolisthesis') are significantly different for 'Spondylolisthesis' class when compared to that of the other 2 classes.</font> 
+|    <font size = 1> 2) Data-distribution for 'sacral_slope' is significantly different for each of the three classes.</font> 
+|    <font size = 1> 3) Outliers (in all features except pelvic_tilt) are more for 'Spondylolisthesis' class than the other 2 classes.</font> 
+
+|    <font size = 1> With these significant differences, a regression-based model approach appears to be a good start.
+Since the response variable has 3 levels ('Normal', 'Hernia' and 'Spondylolisthesis), Multinominal Logistic Regression is a good fit for this problem statement.</font>
+
+
+|     **3) Model 1 - Multinominal Logistic Regression**
+```{r }
+#Deploy Model 1 - Multinomial Logistic Regression
+#Partition training and test sets in 80-20 ratio
+test_index <- createDataPartition(y = datasetnew$class, times = 1, p = 0.2, list = FALSE)
+training_set <- datasetnew[-test_index,]
+test_set <- datasetnew[test_index,]
+
+#Build the model on the training set
+library(nnet)
+my_model <- multinom(class~., data = training_set)
+#Validate against the test set
+my_model_results <- predict(my_model,test_set)
+
+#Plot confusion matrix
+confusionMatrix(data = my_model_results, reference = test_set$class)
+
+#Start tabling accuracy results for each iteration
+resulttable1 <- table(observed = test_set$class, predicted = my_model_results)
+accuracy1 <- sum(diag(resulttable1))/length(my_model_results)
+#Accuracy from Multinomial Logistic Regression model is:
+print(accuracy1)
+```
+```{r message=FALSE, warning=FALSE}
+#Now, let us understand if a tree-structure can be a good alternative model fit for the data
+if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
+if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
+library (rpart)
+library(rpart.plot)
+```
+```{r }
+ctree_temp <- rpart(class~., data = training_set, method = 'class')
+rpart.plot(ctree_temp)
+
+# With all the predictors being continuous variables within a set range, a tree-structure can not only
+#be a good fit but also show a decision-tree based visualization of the model that is
+#easily interpretable. Aggregation of many such decision trees can help with a variety of
+#options to tune and enhance accuracy. Hence, a RandomForest model can be deployed in this regard.
+```
+
+|     **4) Model 2 - Random Forest**
+```{r message=FALSE, warning=FALSE}
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+library(randomForest)
+```
+```{r }
+rfmodel <- randomForest(class~., data = training_set, ntree=10)
+#See model summary
+rfmodel
+#Validate on the test set
+rfp <- predict(rfmodel, test_set)
+#See overall accuracy
+resulttable2a <- table(observed = test_set$class, predicted = rfp)
+resulttable2a
+accuracy2a <- sum(diag(resulttable2a))/length(rfp)
+#Accuracy from the baseline model of RandomForest is:
+print(accuracy2a)
+```
+
+<font size = 1.5> *Inference*</font> 
+
+|    <font size = 1>The estimate of error rate seen in the baseline model summary can be optimized by fine-tuning. The  model is defined for 10 trees (nTree) and the default number of variables to be sampled at each split(mTry). Let us tune  mTry for an optimum value where the estimate of error is the least</font>
+
+
+|     **5) Train/tune Model 2 (Random Forest)**
+```{r }
+# Tune for optimum mtry
+mtry <- tuneRF(training_set[-7],training_set$class,ntreeTry=100, stepFactor = 0.5, improve = 0.01, trace = TRUE, plot = TRUE)
+best.m <- mtry[mtry[,2]==min(mtry[,2]),1]
+mtry
+best.m
+# Applying optimum mtry value and also increasing tree-size to 100
+rfmodel_tuned <- randomForest(class~., data = training_set, ntree=100, mtry = best.m)
+rfp_tuned <- predict(rfmodel_tuned, test_set)
+resulttable2b <-table(observed = test_set$class, predicted = rfp_tuned)
+resulttable2b
+accuracy2b <- sum(diag(resulttable2b))/length(rfp_tuned)
+# Accuracy after optimizing mTry for least error estimate is :
+print(accuracy2b)
+```
+
+### D) Results:
+Summary of the two models built for 'Biomechanical features of orthopedic patients' is as follows:
+```{r }
+
+Model <- c("Multinomial Logistic Regression","Random Forest","Random Forest(tuned to optimize mtry)")
+Accuracy <- c(accuracy1, accuracy2a, accuracy2b)
+data.frame(Model, Accuracy)
+```
+
+#### Models comparison:
+While Multinomial Logistic Regression (MLR) might produce a better overall accuracy for this problem statement, Random Forest (RF) brings other benefits in the form of
+visualization (tree-structure) easily interpretable by customers. The randomForestExplainer package offers a variety of metrics to understand (and subsequently iterate) the depth and breadth of the model.
+Further, there is a lot of tuning parameters (mtry, ntree etc.) in scope to consider for iterating the model to improve accuracy in the long-term. 
+
+On the flip side, the chances for over-fitting are more in RF when compared to MLR.
+Selection of the best model for this problem statement could be based on what is critical to the customer - Timeline, Interpretability, Precision etc.
+
+### E) Conclusion
+Aiming an ‘accuracy closer to 100%’ is seen more as a journey than an accomplishment since there could be very many iterations to be followed further (reduce sampling bias errors, optimize tuning parameters etc.). Also, the confusion matrices clearly indicate that the correct & incorrect predictions vary across the models. So, there is a huge opportunity for 'Ensemble' as well in order to optimize the results. Enhanced system features in the form of memory management and deeper code execution are key factors to train the model further and attain better accuracy. The learning experience as part of this project submission was great. The training materials were eﬀective enough to help us pick a problem statement on our own and also independently deploy an end-to-end Machine Learning solution.
